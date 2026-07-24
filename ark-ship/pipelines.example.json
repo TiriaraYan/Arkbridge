@@ -1,0 +1,107 @@
+{
+  "_doc": "Pipeline registry: maps file paths to pipelines, their docs, and their rules. This is the single source of truth for 'which file belongs to which pipeline.' The /ship flow and map_pipelines.py consume this file.",
+  "_setup": "Copy this file to .claude/pipelines.json in your project root and customize it. The 'paths' field uses glob patterns relative to the project root. A file can match multiple pipelines (that's normal). See README.md for details.",
+  "pipelines": {
+    "frontend": {
+      "summary": "UI components, pages, and client-side logic",
+      "paths": [
+        "src/components/**",
+        "src/pages/**",
+        "src/hooks/**",
+        "src/styles/**",
+        "src/App.*",
+        "public/**"
+      ],
+      "docs": [
+        "docs/frontend.md"
+      ],
+      "external_docs": [],
+      "rules": [
+        "New pages must be added to the router",
+        "Shared components go in src/components/common/, page-specific ones stay in the page directory"
+      ],
+      "keywords": ["frontend", "UI", "component", "page"]
+    },
+
+    "api": {
+      "summary": "Backend API endpoints and middleware",
+      "paths": [
+        "src/api/**",
+        "src/routes/**",
+        "src/middleware/**",
+        "src/controllers/**"
+      ],
+      "docs": [
+        "docs/api.md"
+      ],
+      "external_docs": [],
+      "rules": [
+        "New endpoints must have authentication middleware unless explicitly public",
+        "API changes need corresponding OpenAPI/Swagger doc updates",
+        "Error responses use the standard error format — no raw exceptions"
+      ],
+      "keywords": ["api", "endpoint", "route", "controller"]
+    },
+
+    "database": {
+      "summary": "Schema, migrations, and data access",
+      "paths": [
+        "src/models/**",
+        "src/db/**",
+        "migrations/**",
+        "prisma/**",
+        "src/repositories/**"
+      ],
+      "docs": [
+        "docs/database.md"
+      ],
+      "external_docs": [],
+      "rules": [
+        "Every schema change needs a migration file",
+        "Migrations must be idempotent (safe to re-run)",
+        "No raw SQL with string interpolation — use parameterized queries"
+      ],
+      "keywords": ["database", "migration", "schema", "model"]
+    },
+
+    "infra": {
+      "summary": "Docker, CI/CD, deployment configuration",
+      "paths": [
+        "docker-compose*.yml",
+        "Dockerfile*",
+        ".github/**",
+        "nginx/**",
+        "scripts/deploy*",
+        ".env.example"
+      ],
+      "docs": [
+        "docs/deployment.md"
+      ],
+      "external_docs": [],
+      "rules": [
+        "Ports bind 127.0.0.1 unless intentionally public",
+        "New containers must have mem_limit set",
+        "Changes to .env keys must be reflected in .env.example"
+      ],
+      "keywords": ["docker", "deploy", "CI", "nginx", "infra"]
+    },
+
+    "auth": {
+      "summary": "Authentication and authorization",
+      "paths": [
+        "src/auth/**",
+        "src/middleware/auth*"
+      ],
+      "docs": [
+        "docs/auth.md"
+      ],
+      "external_docs": [],
+      "rules": [
+        "Token/session handling changes need extra security review",
+        "Never log or expose tokens in error messages",
+        "Auth changes must be tested with both valid and invalid credentials"
+      ],
+      "keywords": ["auth", "login", "token", "session", "permission"]
+    }
+  }
+}

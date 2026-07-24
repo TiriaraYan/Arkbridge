@@ -1,0 +1,243 @@
+---
+description: "Ship flow: inventory → pipeline mapping → doc sync → security audit → syntax check → commit → cleanup → self-review"
+---
+
+# /ship — Structured Pre-commit Ship Flow
+
+Follow every step in order. Do NOT skip steps. If a step produces a BLOCKER, stop and fix it before continuing.
+
+This flow assumes the project has a `.claude/pipelines.json` registry (see README for setup). If the registry does not exist yet, skip Steps 2-3's pipeline-specific parts and run the generic checklist instead — but consider setting one up afterward.
+
+**Verify-as-you-go principle**: Step 4 is the FINAL syntax/build check, not the ONLY one. As you work, verify each file compiles/parses right after editing it — don't save all verification for the end. Catching a syntax error 5 files in is much cheaper than catching it after you've written 10 files that depend on the broken one.
+
+---
+
+## Step 0 — Inventory
+
+```bash
+git status --short
+git diff --stat
+git diff --cached --stat
+```
+
+Partition output into two buckets:
+- **(a) This session's work** — files you modified in this conversation.
+- **(b) Foreign / unrelated changes** — files you did not touch. Could be from another branch, person, or session.
+
+Rules:
+- NEVER stage foreign changes into your commit. Leave them alone.
+- If zero changes exist, say "Nothing to ship" and stop.
+- Note any foreign changes for Step 7.
+
+**Multi-session awareness**: If you see foreign changes (bucket b), it means someone else (or another Claude session) is working in the same repo. This is normal but dangerous — mixing their half-done work into your commit is how silent bugs happen. Partition carefully. When in doubt about whether a file is yours, check `git log --oneline -1 <file>` or ask the user.
+
+Print the partition to the user before moving on.
+
+---
+
+## Step 1 — Pipeline Mapping
+
+Run the deterministic mapper — do not eyeball-glob:
+
+```bash
+git status --short | python3 .claude/scripts/map_pipelines.py
+```
+
+The mapper reads `.claude/pipelines.json`, matches changed files to pipelines via glob patterns, and outputs per-pipeline hit lists with docs and rules. Files in the "unregistered" bucket deserve consideration: should `pipelines.json` gain a new entry?
+
+Filter the output down to THIS session's files (Step 0 partition).
+
+Output: the list of touched pipelines, with their docs and rules.
+
+If `pipelines.json` does not exist, manually determine what areas the changes touch (frontend / backend / database / infra / docs) and proceed.
+
+---
+
+## Step 2 — Documentation Sync (per touched pipeline)
+
+For EACH touched pipeline, check its documentation layers (configured in `pipelines.json`):
+
+### Layer 1 — Project docs (`docs` field)
+For each doc file listed in the pipeline's `docs` array:
+- Does the architecture / flow / API description still match the code after this change?
+- Are constant tables, config references, or example outputs still accurate?
+- Update stale docs NOW, before proceeding.
+
+### Layer 2 — External docs (`external_docs` field, optional)
+If the pipeline has external documentation (wiki, design docs, Notion, GitHub docs):
+- Are invariants / state overviews / cross-system references still accurate?
+- Does this change deserve a decision record or changelog entry?
+
+### Layer 3 — Status tracking (`keywords` field)
+If the project uses a memory system, task tracker, or changelog:
+- Grep `keywords` against the tracking system. Does any entry need its status updated?
+- If the project uses Claude Code memory: update BOTH the index line AND the body file (a common mistake is updating one but not the other).
+
+### Rules compliance (`rules` field)
+Verify each rule listed for the pipeline was honored by this change. Rules are project-specific invariants — e.g., "migration files must be idempotent", "API changes need version bump".
+
+Fix all sync gaps BEFORE proceeding.
+
+---
+
+## Step 2.5 — Code Review Gate
+
+If this session's diff touches **≥3 files** OR **spans multiple modules**, check whether a code review was already done this session. If not, recommend running one now — it catches logic bugs and design drift that the security scan (Step 3) does not cover.
+
+Skip for single-file fixes or doc-only changes.
+
+---
+
+## Step 3 — Security Audit
+
+Tell the user: "Starting security + robustness audit" — never run it silently.
+
+If the project has a security auditor agent (`.claude/agents/security-auditor.md`), spawn it with the Step 0 file list using the Agent tool with `subagent_type: "security-auditor"`. The auditor reads the diff cold (no author bias) and returns `[BLOCKER|WARN|NOTE]` findings.
+
+If no dedicated auditor agent exists, run the inline checklist below:
+
+### Secrets & credentials
+- [ ] No API keys, tokens, passwords, or connection strings hardcoded in source
+- [ ] No `.env`, `.pem`, `.key`, credential files staged for commit
+- [ ] No secrets in log/print/console statements
+- [ ] Scan `git diff --cached` for high-entropy strings or patterns (`sk-`, `AKIA`, `ghp_`, `-----BEGIN`, `password=`)
+
+### Injection & input handling
+- [ ] No raw string interpolation in SQL (use parameterized queries)
+- [ ] No unescaped user content in HTML templates (XSS)
+- [ ] No `eval()` / `exec()` / `os.system()` / `subprocess(shell=True)` with user input
+- [ ] No unsanitized file paths from user input (path traversal)
+
+### Error handling
+- [ ] Error responses don't expose stack traces, internal paths, or raw exceptions
+- [ ] No `detail=str(e)`, `message: err.stack`, `res.send(error)` in user-facing handlers
+
+### Network & access control
+- [ ] New endpoints have auth checks (or explicit justification for being public)
+- [ ] Service ports bind `127.0.0.1` unless intentionally public
+- [ ] No debug routes, test endpoints, or dev backdoors left enabled
+- [ ] CORS not set to `*` in production paths
+
+### Robustness
+- [ ] No blocking I/O inside locks or mutexes (use short timeout + skip)
+- [ ] Batch / scan jobs have memory bounds (don't OOM a small server)
+- [ ] Import paths verified — `from x.y import z` actually resolves (grep for the definition)
+
+Verdict:
+- Any `[BLOCKER]` → fix, then re-audit. Do not commit with known blockers.
+- `[WARN/NOTE]` → judge and explicitly accept or fix, with stated reason.
+
+---
+
+## Step 4 — Syntax & Build Verification
+
+Run language-appropriate checks on ALL changed files:
+
+| Language | Check |
+|----------|-------|
+| Python | `python -m py_compile <file>` per changed `.py` |
+| TypeScript | `npx tsc --noEmit` or project typecheck script |
+| JavaScript | Project lint (`npm run lint`, `eslint`) |
+| Go | `go vet ./...` |
+| Rust | `cargo check` |
+| Java/Kotlin | `./gradlew compileJava` (watch memory on small servers) |
+| Docker | `docker compose config -q` if compose files changed |
+| YAML/JSON | Parse-validate changed files |
+
+If any check fails → fix before continuing.
+
+**Smoke test**: Beyond syntax, verify the changed code path doesn't crash on import or startup. For backend changes, confirm the server can start. For frontend changes, confirm the dev server renders the changed page. State what was smoked and the result.
+
+Run related tests if they exist. At minimum, run tests in the same directory as the changed files.
+
+State what was checked and the result — honestly. Don't claim "all checks pass" without actually running them.
+
+---
+
+## Step 5 — Commit
+
+### 5a. Stage explicitly
+`git add <file>` for each file individually. NEVER `git add .` or `git add -A` — those pick up unintended files.
+
+### 5b. Verify staging
+`git status` — confirm only this change's files are staged. Unstage anything unexpected.
+
+### 5c. Commit message
+- **First line**: imperative mood, ≤72 chars, states WHAT + WHY (not HOW)
+- **Body** (optional): context that is not obvious from the diff — design tradeoffs, what was intentionally left out, what depends on this change
+
+### 5d. One logical unit = one commit
+Finish a coherent piece of work before committing. Anti-patterns:
+- `fix A` → `fix A again` → `actually fix A this time` (碎 commit 链 — should have been one commit)
+- Committing half a feature, then scrambling to add the other half
+- Mixing a bug fix with an unrelated refactor in the same commit
+
+If you realize mid-session you have two unrelated changes, split them into two commits.
+
+### 5e. Commit
+If a pre-commit hook fails: fix the issue, re-stage, create a NEW commit. Do NOT `--amend` (that modifies the previous commit, which may not be yours).
+
+Push is a SEPARATE decision — ask the user before pushing.
+
+---
+
+## Step 6 — Post-commit Cleanup
+
+```bash
+git status --short
+```
+
+Three outcomes:
+
+| Outcome | Action |
+|---------|--------|
+| **(a) Clean** | Working tree clean. Proceed to Step 7. |
+| **(b) Your leftovers** | Files you forgot. Add a follow-up commit or explicitly report what's left and why. Nothing "small" silently stays — not a config tweak, not a doc update, not a cleanup. If it's yours, commit it or explain why you're leaving it. |
+| **(c) Foreign changes** | Not yours. Report them to the user but don't touch them. Mention who/what they might belong to if you can tell. |
+
+If Step 2 promised doc/status updates, verify they actually landed — grep the updated line, don't just trust your memory that you did it. A common failure mode: you updated a doc body but forgot to update the corresponding index/reference that points to it, leaving them out of sync.
+
+---
+
+## Step 7 — Self-Review (the two questions)
+
+Before reporting "done," answer two questions **honestly and thoroughly**. These catch a class of problems that tests and audits cannot: hidden assumptions and missing work.
+
+### Question 1 — Hidden assumptions
+> "Is there anything I assumed the user already knows, and just ran with it without telling them?"
+
+You are looking for decisions you made silently. Examples:
+- "I chose fallback strategy X without asking — the user may have preferred Y"
+- "I assumed the migration runs before the new code deploys"
+- "I assumed this endpoint is internal-only and skipped rate limiting"
+- "I drew a scope boundary here (only touched file A, not B) without explaining why"
+- "I assumed existing tests cover the behavior I changed"
+
+List every instance. If none, say so.
+
+### Question 2 — Uncovered work
+> "Is there extra work that this flow didn't execute, but now — looking at the finished change — I think should be done?"
+
+You are looking for work that fell outside the steps above but matters. Examples:
+- "This change affects the caching layer, but we never discussed cache invalidation"
+- "I see a related function in another file that probably needs the same fix"
+- "The deploy config may need updating but I didn't check"
+- "There are stale comments in a neighboring file that now describe old behavior"
+
+Don't say "I think it's fine." Run commands, grep for related code, show evidence — or say what you DIDN'T check.
+
+If either question surfaces issues, report them with severity and recommended action. Do NOT fix silently — list them for the user to decide.
+
+---
+
+## Ship Summary
+
+```
+Shipped:    <one-line description>
+Commit:     <hash>
+Pipelines:  <touched pipelines from Step 1>
+Docs:       <what was updated in Step 2, or "no updates needed">
+Audit:      <PASS/FAIL + finding count>
+Syntax:     <what was checked, result>
+Open items: <anything from Steps 2/6/7, or "None">
+```
