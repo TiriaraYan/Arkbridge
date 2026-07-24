@@ -1,9 +1,10 @@
 {
   "_doc": "Pipeline registry: maps file paths to pipelines, their docs, and their rules. This is the single source of truth for 'which file belongs to which pipeline.' The /ship flow and map_pipelines.py consume this file.",
-  "_setup": "Copy this file to .claude/pipelines.json in your project root and customize it. The 'paths' field uses glob patterns relative to the project root. A file can match multiple pipelines (that's normal). See README.md for details.",
+  "_setup": "Copy this file to .claude/pipelines.json in your project root and customize it. The 'paths' field uses glob patterns relative to the project root. A file can match multiple pipelines (that's normal). The 'criticality' field (high/normal/low) controls how aggressively /ship triggers code review — a single-file change to a 'high' pipeline triggers review. See README.md for details.",
   "pipelines": {
     "frontend": {
       "summary": "UI components, pages, and client-side logic",
+      "criticality": "normal",
       "paths": [
         "src/components/**",
         "src/pages/**",
@@ -25,6 +26,7 @@
 
     "api": {
       "summary": "Backend API endpoints and middleware",
+      "criticality": "high",
       "paths": [
         "src/api/**",
         "src/routes/**",
@@ -45,6 +47,7 @@
 
     "database": {
       "summary": "Schema, migrations, and data access",
+      "criticality": "high",
       "paths": [
         "src/models/**",
         "src/db/**",
@@ -66,6 +69,7 @@
 
     "infra": {
       "summary": "Docker, CI/CD, deployment configuration",
+      "criticality": "normal",
       "paths": [
         "docker-compose*.yml",
         "Dockerfile*",
@@ -88,6 +92,7 @@
 
     "auth": {
       "summary": "Authentication and authorization",
+      "criticality": "high",
       "paths": [
         "src/auth/**",
         "src/middleware/auth*"

@@ -73,6 +73,17 @@ If the project uses a memory system, task tracker, or changelog:
 - Grep `keywords` against the tracking system. Does any entry need its status updated?
 - If the project uses Claude Code memory: update BOTH the index line AND the body file (a common mistake is updating one but not the other).
 
+### Signature change summary
+
+If this change modifies any **public interface** (API endpoints, function signatures, database schema, config format, message contracts), generate a one-line summary per change:
+
+```
+Signature change [api]: POST /users now requires `email` field (was optional)
+Signature change [database]: users table adds NOT NULL column `verified_at`
+```
+
+Include these in the commit message body (Step 5) and cross-check: does the corresponding doc actually describe the new signature, not just "something was updated"?
+
 ### Rules compliance (`rules` field)
 Verify each rule listed for the pipeline was honored by this change. Rules are project-specific invariants — e.g., "migration files must be idempotent", "API changes need version bump".
 
@@ -82,9 +93,14 @@ Fix all sync gaps BEFORE proceeding.
 
 ## Step 2.5 — Code Review Gate
 
-If this session's diff touches **≥3 files** OR **spans multiple modules**, check whether a code review was already done this session. If not, recommend running one now — it catches logic bugs and design drift that the security scan (Step 3) does not cover.
+Trigger a code review recommendation if ANY of these conditions is true:
+1. The diff touches **≥3 files**
+2. The diff **spans multiple modules**
+3. **Any touched pipeline has `criticality: "high"`** in `pipelines.json` — even a single-file change to a high-criticality pipeline (auth, database, payments) deserves review
 
-Skip for single-file fixes or doc-only changes.
+If triggered and no code review was done this session, recommend running one now — it catches logic bugs and design drift that the security scan (Step 3) does not cover.
+
+Skip for doc-only changes.
 
 ---
 
@@ -92,7 +108,11 @@ Skip for single-file fixes or doc-only changes.
 
 Tell the user: "Starting security + robustness audit" — never run it silently.
 
-If the project has a security auditor agent (`.claude/agents/security-auditor.md`), spawn it with the Step 0 file list using the Agent tool with `subagent_type: "security-auditor"`. The auditor reads the diff cold (no author bias) and returns `[BLOCKER|WARN|NOTE]` findings.
+If the project has a security auditor agent (`.claude/agents/security-auditor.md`), spawn it with:
+- The Step 0 file list
+- The **pipeline-specific rules** from Step 1's mapper output (the `RULE:` lines for each touched pipeline)
+
+The auditor checks both its own universal checklist AND the pipeline rules. This way a database migration gets checked against "migrations must be idempotent" while a frontend change does not — and vice versa. The auditor reads the diff cold (no author bias) and returns `[BLOCKER|WARN|NOTE]` findings.
 
 If no dedicated auditor agent exists, run the inline checklist below:
 
@@ -227,6 +247,14 @@ You are looking for work that fell outside the steps above but matters. Examples
 Don't say "I think it's fine." Run commands, grep for related code, show evidence — or say what you DIDN'T check.
 
 If either question surfaces issues, report them with severity and recommended action. Do NOT fix silently — list them for the user to decide.
+
+### Feedback loop — growing smarter
+
+If either question produced a non-trivial finding, consider: **should this become a rule?**
+
+For example, if Question 2 surfaced "this change affects caching but we didn't check TTL" and the project has a `caching` or `api` pipeline, propose adding a rule like `"Changes touching cached endpoints must verify TTL and invalidation logic"` to that pipeline's `rules` array in `pipelines.json`.
+
+Don't add rules silently — propose them to the user in the ship summary. The user decides whether to adopt. Over time, each ship makes the next ship smarter because the rules accumulate real lessons.
 
 ---
 
