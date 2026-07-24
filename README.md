@@ -10,7 +10,7 @@ Arkbridge 项目的公开资源。工具、流程、经验——从一个跑了 
 
 ## 关于 Arkbridge
 
-Arkbridge 是一个 AI 角色对话平台，由 Tiriara 独立开发和维护。这个公开仓库分享的是项目过程中积累的通用工具和方法论——不涉及 Arkbridge 的业务代码。
+Arkbridge 是一个 AI 陪伴平台，由 Council Of Minds 集体开发和维护。这个公开仓库分享的是项目过程中积累的通用工具和方法论——不涉及 Arkbridge 的业务代码。
 
 ## License
 
