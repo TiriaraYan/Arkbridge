@@ -91,6 +91,31 @@ Fix all sync gaps BEFORE proceeding.
 
 ---
 
+## Step 2.4 — Data Contract Alignment
+
+If this change touches a **data boundary** — any point where two systems exchange data under an agreed format — verify the contract is still honored.
+
+Data boundaries include:
+- **API**: request/response schema (field names, types, required vs optional, enums)
+- **Database**: column types, NOT NULL constraints, CHECK constraints, enum values
+- **Inter-service**: message formats between frontend and backend, or between microservices
+- **State machine**: valid state transitions (e.g., order status, user lifecycle)
+- **Config**: .env keys, feature flags, compose service names
+
+For each data boundary this change crosses, answer three questions:
+
+1. **Contract honored?** Does the new code still produce/consume data in the agreed format? Watch for: renamed fields, changed types, new required fields without defaults, removed enum values, altered state transitions.
+
+2. **All consumers updated?** If the contract DID change, are ALL systems on both sides of the boundary aware? A backend API change needs a frontend update. A DB schema change needs an ORM/model update. **List every consumer and verify each one.**
+
+3. **Contract tested?** Is there a test, schema validation, or type check that would catch a future violation? If not, note it as a gap in the ship summary.
+
+If a contract is broken and the other side is NOT updated → **BLOCKER**. Fix before proceeding.
+
+If no data boundaries are touched, say so and move on.
+
+---
+
 ## Step 2.5 — Code Review Gate
 
 Trigger a code review recommendation if ANY of these conditions is true:
