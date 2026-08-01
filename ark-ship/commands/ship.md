@@ -1,5 +1,5 @@
 ---
-description: "Ship flow: inventory → pipeline mapping → doc sync → security audit → syntax check → commit → cleanup → self-review"
+description: "Ship flow: inventory → pipeline mapping → doc sync → security audit → syntax & test gate → commit → cleanup → self-review"
 ---
 
 # /ship — Structured Pre-commit Ship Flow
@@ -174,7 +174,7 @@ Verdict:
 
 ---
 
-## Step 4 — Syntax & Build Verification
+## Step 4 — Syntax, Build & Test Gate
 
 Run language-appropriate checks on ALL changed files:
 
@@ -193,7 +193,13 @@ If any check fails → fix before continuing.
 
 **Smoke test**: Beyond syntax, verify the changed code path doesn't crash on import or startup. For backend changes, confirm the server can start. For frontend changes, confirm the dev server renders the changed page. State what was smoked and the result.
 
-Run related tests if they exist. At minimum, run tests in the same directory as the changed files.
+**Test gate**: If the project has a test suite, run it — and prefer the FULL suite over a hand-picked subset. Subset selection (mapping changed files to "their" tests) has real complexity cost and silently misses tests whose names don't fit the mapping; a suite that finishes in a couple of minutes doesn't justify that machinery. Time the run once before deciding it's too slow.
+
+- **Any red halts the ship — regardless of who broke it.** In repos with multiple sessions or people working in parallel, some failures will predate your change. "This red isn't mine" is exactly the kind of self-serving judgment a shipping agent must not make alone: report the failure to the user and let them decide — wait for the other party's fix, authorize committing over the known red, or accept that your change did break it. The escape hatch exists, but it goes through the user.
+- **Don't let one broken file mask the whole suite.** A single import/collection error can abort the entire run before any test executes (pytest: pass `--continue-on-collection-errors`), and that failure looks identical to "the suite never ran". The error still fails the gate — the flag only stops it from hiding the other results.
+- **Report proof of execution.** Include pass/fail/skip counts and wall time in the ship summary even when green — when "failed" and "never ran" look the same, the numbers are the evidence.
+
+If there is no test suite, say so explicitly in the ship summary rather than silently skipping.
 
 State what was checked and the result — honestly. Don't claim "all checks pass" without actually running them.
 
@@ -292,5 +298,6 @@ Pipelines:  <touched pipelines from Step 1>
 Docs:       <what was updated in Step 2, or "no updates needed">
 Audit:      <PASS/FAIL + finding count>
 Syntax:     <what was checked, result>
+Tests:      <pass/fail/skip counts + wall time, or "no suite">
 Open items: <anything from Steps 2/6/7, or "None">
 ```
