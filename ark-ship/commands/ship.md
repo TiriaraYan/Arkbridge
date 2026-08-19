@@ -193,11 +193,21 @@ If any check fails → fix before continuing.
 
 **Smoke test**: Beyond syntax, verify the changed code path doesn't crash on import or startup. For backend changes, confirm the server can start. For frontend changes, confirm the dev server renders the changed page. State what was smoked and the result.
 
-**Test gate**: If the project has a test suite, run it — and prefer the FULL suite over a hand-picked subset. Subset selection (mapping changed files to "their" tests) has real complexity cost and silently misses tests whose names don't fit the mapping; a suite that finishes in a couple of minutes doesn't justify that machinery. Time the run once before deciding it's too slow.
+**Test gate**: If the project has a test suite, pick the tier that matches what actually changed — and state in the ship summary which tier you picked and why. The real cost of always running everything isn't wall-clock; it's the attention spent parsing unrelated failures and arguing about whose red is whose.
 
-- **Any red halts the ship — regardless of who broke it.** In repos with multiple sessions or people working in parallel, some failures will predate your change. "This red isn't mine" is exactly the kind of self-serving judgment a shipping agent must not make alone: report the failure to the user and let them decide — wait for the other party's fix, authorize committing over the known red, or accept that your change did break it. The escape hatch exists, but it goes through the user.
+1. **Skip** — the diff is docs / comments / log-wording only: no executable code, no config the runtime reads. Syntax checks + smoke are enough. Stronger still: if you can prove the compiled artifacts are byte-identical to the pre-change tree (e.g. comparing compiled code objects), cite that proof.
+2. **Targeted (default)** — run the tests that own the changed code: the test files registered for the touched modules/pipelines, plus any test that imports or asserts on the changed symbols. Locate them by grepping for the symbols, not by filename resemblance — tests whose names don't match the module are exactly the ones a name-based mapping misses. A red in a targeted run is by definition yours: fix it. There is no "someone else's red" exemption here.
+3. **Full** — required when the change touches a contract (function signature, API endpoint, DB schema), a config/serialization format, template or prompt text that tests assert on, a cross-module refactor, a migration, or the test files themselves.
+
+**Full-run reds follow "no new reds", not "all green".** In repos with parallel sessions or people, some failures predate your change. Attribute every failure mechanically — re-run the exact failing test on the unchanged tree at the same HEAD:
+
+- **New red** (fails with your change, passes without) → halt; fix before commit.
+- **Pre-existing red** (fails identically without your change) → does not block this ship. List the failing tests plus the clean-tree reproduction in the ship summary, and make sure an owner or tracked task exists for them. Attribution must be reproduction evidence — never the impression that "this one isn't mine". That impression is exactly the self-serving judgment a shipping agent must not make alone.
+
+**Precondition for the narrow tiers**: something out-of-band still runs the full suite on a schedule (CI, a daily cron with alerting on state flips). If nothing does, keep running the full suite at every ship — the gate is the only net you have.
+
 - **Don't let one broken file mask the whole suite.** A single import/collection error can abort the entire run before any test executes (pytest: pass `--continue-on-collection-errors`), and that failure looks identical to "the suite never ran". The error still fails the gate — the flag only stops it from hiding the other results.
-- **Report proof of execution.** Include pass/fail/skip counts and wall time in the ship summary even when green — when "failed" and "never ran" look the same, the numbers are the evidence.
+- **Report proof of execution.** Include the tier picked, pass/fail/skip counts, and wall time in the ship summary even when green — when "failed" and "never ran" look the same, the numbers are the evidence.
 
 If there is no test suite, say so explicitly in the ship summary rather than silently skipping.
 
@@ -298,6 +308,6 @@ Pipelines:  <touched pipelines from Step 1>
 Docs:       <what was updated in Step 2, or "no updates needed">
 Audit:      <PASS/FAIL + finding count>
 Syntax:     <what was checked, result>
-Tests:      <pass/fail/skip counts + wall time, or "no suite">
+Tests:      <tier picked (skip/targeted/full) + pass/fail/skip counts + wall time, or "no suite">
 Open items: <anything from Steps 2/6/7, or "None">
 ```
