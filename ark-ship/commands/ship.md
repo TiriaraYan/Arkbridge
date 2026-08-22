@@ -223,6 +223,30 @@ The idea: preserve the incremental commits as a **history branch** for audit and
 
 Assumes: session work happened on a branch you own (e.g., `session-<TAG>`), rebased onto `origin/main` is safe (no shared collaborators mid-branch), and force-pushing your own session branch is acceptable.
 
+### 4.5.0 Upstream sanity gate (pre-flight before rebase)
+
+Pre-flight check: if your session branch has an upstream, it MUST be the mainline you're targeting (or unset). A branch tracking a stale/renamed/deprecated ref is a landmine — bare `git push` silently updates the wrong remote branch, and Step 4.5.a's rebase wastes minutes before Step 5's push fails or (worse) recreates the deprecated ref on origin.
+
+```
+UPSTREAM=$(git rev-parse --abbrev-ref @{upstream} 2>/dev/null || echo "no-upstream")
+```
+
+- `origin/main` (the mainline you're targeting) → continue to 4.5.a.
+- `no-upstream` (unset) → continue. Step 4.5 uses explicit refspec on push (`origin <branch>:main`), so no upstream is needed.
+- Anything else (e.g., `origin/<deprecated>`, `origin/<renamed>`) → **abort ship** with a clear migration message:
+
+  ```
+  ❌ Wrong upstream: <UPSTREAM>
+     Your branch tracks a ref that isn't the target mainline.
+     Migrate:
+       git branch --unset-upstream
+     Then re-run ship — Step 4.5's explicit refspec doesn't need an upstream.
+  ```
+
+**Why this gate exists**: pre-existing session branches created before a mainline rehab (branch rename, cut-over from a long-lived feature branch back to main) still carry the old upstream. Without this check, the branch's bare `git push` silently reaches for the stale ref — recreating deprecated branches on origin, or (if the ref is gone) failing loudly only after the expensive rebase in 4.5.a. The gate fails fast with an actionable fix.
+
+**Optional defense-in-depth — repo-level pre-push hook**: a `.git/hooks/pre-push` script that rejects push to any deprecated ref name pattern serves as a universal fence for tools that bypass this gate (direct command-line push, third-party clients that don't run the ship flow). Since `.git/hooks/` is not tracked in git, ship a template into a tracked path (e.g. `scripts/git_hooks/pre-push`) plus an installer script that copies it into every fresh clone's `.git/hooks/`. Escape hatch via an env var (e.g. `ALLOW_STALE_PUSH=1`) audited in commit messages.
+
 ### 4.5.a Fetch and auto-rebase onto mainline
 
 ```
