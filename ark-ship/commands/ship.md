@@ -215,7 +215,92 @@ State what was checked and the result — honestly. Don't claim "all checks pass
 
 ---
 
+## Step 4.5 — Squash-on-ship prep (optional, for session-branch workflows)
+
+**When this applies**: You committed incrementally during work — either directly on a session branch or inside a per-session worktree — and the mainline should record ONE milestone commit per shipped unit rather than the full incremental trail. **Skip this step** if you did not commit during work (dirty tree at ship time → go straight to Step 5's commit sub-steps), or if this repo is low-volume enough that every incremental commit stands on its own.
+
+The idea: preserve the incremental commits as a **history branch** for audit and blame drill-down, and squash them into ONE milestone commit on mainline. Mainline stays legible; the detail is preserved on a side branch.
+
+Assumes: session work happened on a branch you own (e.g., `session-<TAG>`), rebased onto `origin/main` is safe (no shared collaborators mid-branch), and force-pushing your own session branch is acceptable.
+
+### 4.5.a Fetch and auto-rebase onto mainline
+
+```
+git fetch origin main
+git rebase origin/main
+```
+
+If rebase conflicts → **abort ship**, resolve conflicts manually in the working tree, then retry `/ship`. Do NOT auto-continue — a half-rebased state is not shippable, and silent conflict resolution hides real intent collisions.
+
+### 4.5.b Count commits ahead
+
+```
+N=$(git rev-list --count origin/main..HEAD)
+```
+
+- **N=0** → error "nothing to ship (0 commits ahead of mainline)". Abort.
+- **N=1** → skip squash logic (single commit already IS the milestone). Optionally do 4.5.d for archival consistency, then jump to Step 5's push.
+- **N>1** → continue with 4.5.c–e.
+
+### 4.5.c Net-zero diff detection (N>1)
+
+```
+git diff origin/main..HEAD --quiet
+```
+
+Exit 0 means the commits mutually revert — N commits, zero net change. Warn: "N=X commits, diff net-zero. Push milestone anyway? [y/N]" default No. Answer No → abort (the "shipment" is empty). Answer Yes → continue, and flag it in the ship summary as an exploratory milestone (explicit user override, recorded so future audits see this wasn't a bug).
+
+### 4.5.d Push history branch (all N ≥ 1)
+
+```
+git push origin <session-branch>:refs/heads/history/session-<TAG>
+```
+
+Preserves the pre-squash commit trail for audit / blame drill-down. Push even for N=1 so every ship has a corresponding history branch — mainline `Session:` trailers stay grep-symmetric (every trailer resolves to a real branch).
+
+Retention: history branches accumulate. Add a periodic prune (e.g., a weekly cron that deletes `history/session-*` refs older than N months, with a `keep/` prefix as opt-out). Otherwise `refs/heads` grows unboundedly.
+
+### 4.5.e Squash into one milestone (N>1 only)
+
+Capture the pre-squash range for the trailer:
+```
+FIRST_SHA=$(git log --format=%h origin/main..HEAD | tail -1)
+LAST_SHA=$(git log --format=%h -1 HEAD)
+LAST_MSG=$(git log --format=%B -1 HEAD)
+```
+
+Soft-reset to mainline (keeps changes staged in one lump) and commit as one milestone with trailers:
+```
+git reset --soft origin/main
+git commit --edit -m "$LAST_MSG
+
+Squashes: $FIRST_SHA..$LAST_SHA ($N commits)
+Session: <TAG>"
+```
+
+The editor pops so you can revise the milestone message. Defaulting to the last commit's message is usually right — the last commit tends to summarize the final landed state — but revise freely if the last message reads as a fixup rather than a milestone.
+
+The `Squashes:` and `Session:` trailers give grep-free provenance: mainline commits point back to their history branch and their commit range, so a future `git log --grep='Session: <TAG>'` finds the milestone and the trailer body names the branch that holds the detail.
+
+### 4.5.f Verify before Step 5
+
+```
+git log HEAD -1 --format="%h %s"
+git log HEAD -1 --format="%B" | tail -5
+```
+
+Expected:
+- HEAD is **exactly 1 commit ahead** of `origin/main`
+- Message contains `Squashes:` and `Session:` trailers
+- Subject is descriptive (not `tmp:`, `wip`, or a placeholder)
+
+Any mismatch → abort ship, fix manually, retry.
+
+---
+
 ## Step 5 — Commit
+
+> **If Step 4.5 ran**: the milestone commit is already composed. Skip sub-steps 5a–5d and jump to the push discussion at the end of 5e — Step 5 becomes just "push the milestone Step 4.5 produced, after asking the user".
 
 ### 5a. Stage explicitly
 `git add <file>` for each file individually. NEVER `git add .` or `git add -A` — those pick up unintended files.
@@ -311,3 +396,13 @@ Syntax:     <what was checked, result>
 Tests:      <tier picked (skip/targeted/full) + pass/fail/skip counts + wall time, or "no suite">
 Open items: <anything from Steps 2/6/7, or "None">
 ```
+
+**Additional fields when Step 4.5 ran (squash-on-ship workflow):**
+
+```
+Session:    <TAG>                                        # session/branch identifier
+Squashed:   N commits → 1 milestone                      # or "N=1 direct, no squash"
+History:    origin/history/session-<TAG>                 # detail archive branch
+```
+
+If Step 4.5.c net-zero override was accepted, append to the `Shipped:` line: `(net-zero diff milestone, accepted by user override)` — never let an empty-effect milestone slip into the log unmarked.
