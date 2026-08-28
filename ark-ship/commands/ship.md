@@ -324,7 +324,7 @@ Any mismatch → abort ship, fix manually, retry.
 
 ## Step 5 — Commit
 
-> **If Step 4.5 ran**: the milestone commit is already composed. Skip sub-steps 5a–5d and jump to the push discussion at the end of 5e — Step 5 becomes just "push the milestone Step 4.5 produced, after asking the user".
+> **If Step 4.5 ran**: the milestone commit is already composed. Skip sub-steps 5a–5d — Step 5 becomes just "push the milestone Step 4.5 produced, per the 5f push policy".
 
 ### 5a. Stage explicitly
 `git add <file>` for each file individually. NEVER `git add .` or `git add -A` — those pick up unintended files.
@@ -347,7 +347,20 @@ If you realize mid-session you have two unrelated changes, split them into two c
 ### 5e. Commit
 If a pre-commit hook fails: fix the issue, re-stage, create a NEW commit. Do NOT `--amend` (that modifies the previous commit, which may not be yours).
 
-Push is a SEPARATE decision — ask the user before pushing.
+### 5f. Push policy — safety is the machine's job, timing is the human's
+
+The old rule here was "push is a separate decision — ask the user." That gets the division of labor wrong. By the time a commit reaches this step it has passed every mechanical gate the flow provides (review, audit, tests, squash, hooks); asking a human to re-approve what machines already verified is ceremony. Worse, a commit sitting unpushed while you wait for an answer is fragile — in multi-session setups another session's `reset` can silently erase it. The one step that genuinely deserves a human is activation, and even there the question is *when*, not *whether*.
+
+**Prerequisite: push-is-activatable.** If your environment deploys from a shared tree — or any setup where landed code can be activated by any operator's restart at any moment — then pushing IS publishing to production-adjacent space. Treat push as the commitment point: "this code is safe to activate right now." Everything the code depends on (env vars, migrations, companion services, cron entries) must be in place BEFORE you push. For the rare change where code and migration must switch over in the same instant, use backward-compatible migration patterns or perform the land-and-activate steps in one breath.
+
+With that invariant held:
+
+1. **Push — don't ask.** Fast-forward push of the vetted commit, immediately. Exception that always stops for a human: force push, non-fast-forward, or any branch surgery.
+2. **Update the deploy tree — don't ask** (where applicable). Landed code is safe by the invariant above; the documented failure mode is landing *too late*, not too early.
+3. **Restart / activation — the only step worth asking about, and it's a timing question.** Restarting interrupts in-flight requests, clears in-memory state, and cold-starts caches. Three branches:
+   - Change is file-read-only at runtime (prompts, config read per call) → no restart needed; say so in the summary.
+   - The invocation explicitly said to deploy → restart and smoke-test, no question.
+   - Otherwise ask once: "code is landed and safe to activate — restart now, or you pick the time?" If deferred, flag it in the summary so the next session sees it — and note that any other operator's restart will activate it meanwhile (safe by the invariant, but worth knowing).
 
 ---
 
