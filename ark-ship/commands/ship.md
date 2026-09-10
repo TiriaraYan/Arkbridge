@@ -31,6 +31,17 @@ Rules:
 
 **Multi-session awareness**: If you see foreign changes (bucket b), it means someone else (or another Claude session) is working in the same repo. This is normal but dangerous — mixing their half-done work into your commit is how silent bugs happen. Partition carefully. When in doubt about whether a file is yours, check `git log --oneline -1 <file>` or ask the user.
 
+**Session-branch inventory** (if you committed incrementally on a session branch per Step 4.5): your work spreads across TWO sources — the branch's committed history AND any remaining dirty. Meanwhile, if the mainline lives in a **separate checkout** from your session branch, its `git status` shows a THIRD bucket: foreign changes from other sessions. Inventory each explicitly — the mainline's status alone structurally hides everything your session branch already committed:
+
+```bash
+# Session branch (dirty + committed ahead of mainline)
+git status --short
+git log --stat origin/main..HEAD
+
+# Mainline foreign (only if separate checkout from the session branch)
+git -C <mainline-path> status --short
+```
+
 Print the partition to the user before moving on.
 
 ---
@@ -46,6 +57,15 @@ git status --short | python3 .claude/scripts/map_pipelines.py
 The mapper reads `.claude/pipelines.json`, matches changed files to pipelines via glob patterns, and outputs per-pipeline hit lists with docs and rules. Files in the "unregistered" bucket deserve consideration: should `pipelines.json` gain a new entry?
 
 Filter the output down to THIS session's files (Step 0 partition).
+
+**Session-branch input** (if you committed incrementally): mapper input must cover the branch's committed diff AND any dirty. If you only pipe the mainline's `git status`, you structurally miss every pipeline your committed work touched — Steps 2/3/4 will then anchor to the wrong scope (docs sync, audit rules, and test tier all silently point at the foreign changes instead of your work):
+
+```bash
+{
+  git diff --name-only origin/main..HEAD | sed 's|^|M  |'   # committed ahead of mainline
+  git status --short                                         # dirty
+} | python3 .claude/scripts/map_pipelines.py
+```
 
 Output: the list of touched pipelines, with their docs and rules.
 
@@ -210,6 +230,20 @@ If any check fails → fix before continuing.
 - **Report proof of execution.** Include the tier picked, pass/fail/skip counts, and wall time in the ship summary even when green — when "failed" and "never ran" look the same, the numbers are the evidence.
 
 If there is no test suite, say so explicitly in the ship summary rather than silently skipping.
+
+**Container-bound tests — mount awareness** (session-branch scenario): if your tests run inside a container via `<runtime> exec` (Docker/Podman/etc.), and that container's code mount is anchored to a fixed path — typically the mainline deployment tree — then your session branch may be INVISIBLE inside the container. The container then imports the mainline's old code, and a `passed` verdict proves nothing about the diff you're trying to ship. This is one of the silent forms of "proof of execution against the wrong tree".
+
+Sentinel to verify: create a new symbol in your session branch, then run inside the container `docker exec <container> python -c "import <new_module>"`. Success = branch visible; `ModuleNotFoundError` (or the equivalent for your language) = the mount doesn't cover your branch.
+
+Common fix, when the container's mount is the mainline path AND your session branch lives in a subdirectory under it (a git worktree, for instance): prepend the session-branch path to the language's module search path AND set the working directory to it:
+
+```bash
+BRANCH_PATH="$(git rev-parse --show-toplevel)"
+docker exec -e PYTHONPATH="$BRANCH_PATH:<default paths>" -w "$BRANCH_PATH" <container> \
+  python -m pytest <tests> ...
+```
+
+If the mount doesn't cover your branch at all (branch is elsewhere on the filesystem), you either need to remount, run tests outside the container, or stage code into the container's mount path temporarily.
 
 State what was checked and the result — honestly. Don't claim "all checks pass" without actually running them.
 
