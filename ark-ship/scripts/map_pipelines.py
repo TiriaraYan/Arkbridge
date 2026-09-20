@@ -57,6 +57,32 @@ def matches(path, patterns):
     return False
 
 
+def resolve_parent_child(hits_for_file, reg):
+    """Resolve parent-child overlap for a single file's matches.
+
+    When a file matches both a parent pipeline P and a child pipeline C
+    (where C declares ``"parent": "P"``), the child is the *owner* and
+    the parent match is marked *inherited*.  Non-parent-child multi-matches
+    are left as-is for human judgment.
+
+    Returns a list of (pipeline_name, role) tuples where role is
+    ``"owner"`` or ``"inherited"``.
+    """
+    names = list(hits_for_file)
+    if len(names) <= 1:
+        return [(n, "owner") for n in names]
+    parents_of = {n: reg[n].get("parent") for n in names}
+    children = {n for n in names if parents_of[n] and parents_of[n] in names}
+    inherited = {parents_of[n] for n in children}
+    result = []
+    for n in names:
+        if n in inherited and n not in children:
+            result.append((n, "inherited"))
+        else:
+            result.append((n, "owner"))
+    return result
+
+
 def main():
     registry_path = find_registry()
     if not registry_path:
@@ -81,17 +107,33 @@ def main():
             if matches(f, entry.get("paths", []))
         ]
         if matched:
-            for name in matched:
-                hits.setdefault(name, []).append(f)
+            resolved = resolve_parent_child(matched, pipelines)
+            for name, role in resolved:
+                hits.setdefault(name, {"files": [], "role": role})
+                hits[name]["files"].append(f)
+                # A pipeline is "owner" if it owns *any* matched file
+                if role == "owner":
+                    hits[name]["role"] = "owner"
         else:
             unregistered.append(f)
 
     for name in sorted(hits):
         entry = pipelines[name]
-        print(f"== {name} ==")
+        info = hits[name]
+        role = info["role"]
+        group = entry.get("group", "")
+        parent = entry.get("parent")
+        # Build metadata suffix
+        tags = [role]
+        if group:
+            tags.append(f"group={group}")
+        if parent:
+            tags.append(f"parent={parent}")
+        suffix = "; ".join(tags)
+        print(f"== {name} ({suffix}) ==")
         if entry.get("summary"):
             print(f"  ({entry['summary']})")
-        for f in hits[name]:
+        for f in info["files"]:
             print(f"  file: {f}")
         for d in entry.get("docs", []):
             print(f"  doc: {d}")

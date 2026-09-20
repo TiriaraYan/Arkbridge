@@ -1,9 +1,10 @@
 {
   "_doc": "Pipeline registry: maps file paths to pipelines, their docs, and their rules. This is the single source of truth for 'which file belongs to which pipeline.' The /ship flow and map_pipelines.py consume this file.",
-  "_setup": "Copy this file to .claude/pipelines.json in your project root and customize it. The 'paths' field uses glob patterns relative to the project root. A file can match multiple pipelines (that's normal). The 'criticality' field (high/normal/low) controls how aggressively /ship triggers code review — a single-file change to a 'high' pipeline triggers review. See README.md for details.",
+  "_setup": "Copy this file to .claude/pipelines.json in your project root and customize it. The 'paths' field uses glob patterns relative to the project root. A file can match multiple pipelines (that's normal). The 'criticality' field (high/normal/low) controls how aggressively /ship triggers code review — a single-file change to a 'high' pipeline triggers review. Optional: 'group' organizes pipelines into categories; 'parent' marks a child that specializes a broader pipeline (map_pipelines.py labels the parent as 'inherited' when both match). See README.md for details.",
   "pipelines": {
     "frontend": {
       "summary": "UI components, pages, and client-side logic",
+      "group": "client",
       "criticality": "normal",
       "paths": [
         "src/components/**",
@@ -26,6 +27,7 @@
 
     "api": {
       "summary": "Backend API endpoints and middleware",
+      "group": "server",
       "criticality": "high",
       "paths": [
         "src/api/**",
@@ -47,6 +49,7 @@
 
     "database": {
       "summary": "Schema, migrations, and data access",
+      "group": "server",
       "criticality": "high",
       "paths": [
         "src/models/**",
@@ -69,6 +72,7 @@
 
     "infra": {
       "summary": "Docker, CI/CD, deployment configuration",
+      "group": "ops",
       "criticality": "normal",
       "paths": [
         "docker-compose*.yml",
@@ -92,6 +96,8 @@
 
     "auth": {
       "summary": "Authentication and authorization",
+      "group": "server",
+      "parent": "api",
       "criticality": "high",
       "paths": [
         "src/auth/**",
