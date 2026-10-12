@@ -138,16 +138,19 @@ If no data boundaries are touched, say so and move on.
 
 ## Step 2.5 — Code Review Gate
 
-Trigger a code review recommendation if ANY of these conditions is true:
-1. The diff touches **≥3 files**
-2. The diff **spans multiple modules**
-3. **Any touched pipeline has `criticality: "high"`** in `pipelines.json` — even a single-file change to a high-criticality pipeline (auth, database, payments) deserves review
+Pick the review tier by **difficulty, not file count**. File count is a hint, never the switch — sixteen identical one-line edits across sixteen files are still an easy review, while a single-file change to a state machine is not.
 
-If triggered and no code review was done this session, recommend running one now — it catches logic bugs and design drift that the security scan (Step 3) does not cover.
+- **Deep review** — any of:
+  - logic changes: branches, state machines, concurrency, caching
+  - contract changes: API fields, function signatures, DB schema, config formats, prompt semantics
+  - any touched pipeline with `criticality: "high"` in `pipelines.json` (auth, database, payments) — even a single-file change
+  - cross-module coupling: one place's correctness depends on another module's behavior
+- **Light review** — shape-only cleanup, the same pattern repeated across N places, plain field additions, config / copy edits, test backfill.
+- **Skip** — doc-only changes.
+
+When unsure, go deep. Every non-skip change gets a review pass — it catches logic bugs, spec drift and simplification opportunities that the security scan (Step 3) does not cover. The two tiers differ only in how much reviewer you spend (a stronger model / a more thorough pass vs a lighter one), not in whether review happens. State the tier and the one-line reason in the Ship Summary; the user can always bump a change to deep.
 
 One review focus worth naming explicitly: **patch-by-instance**. When the change fixes a structural bug and the same root mechanism can hit a finite, enumerable set of other targets (fields, endpoints, enum values), prefer normalizing — an allowlist plus a shared helper — over patching only the instance that broke. List the universe; state why any neighbor is deliberately excluded.
-
-Skip for doc-only changes.
 
 ---
 
@@ -466,6 +469,7 @@ Shipped:    <one-line description>
 Commit:     <hash>
 Pipelines:  <touched pipelines from Step 1>
 Docs:       <what was updated in Step 2, or "no updates needed">
+Review:     <deep/light/skip + one-line reason + PASS/FAIL + finding count>
 Audit:      <PASS/FAIL + finding count>
 Syntax:     <what was checked, result>
 Tests:      <tier picked (skip/targeted/full) + pass/fail/skip counts + wall time, or "no suite">
