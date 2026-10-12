@@ -145,6 +145,8 @@ Trigger a code review recommendation if ANY of these conditions is true:
 
 If triggered and no code review was done this session, recommend running one now — it catches logic bugs and design drift that the security scan (Step 3) does not cover.
 
+One review focus worth naming explicitly: **patch-by-instance**. When the change fixes a structural bug and the same root mechanism can hit a finite, enumerable set of other targets (fields, endpoints, enum values), prefer normalizing — an allowlist plus a shared helper — over patching only the instance that broke. List the universe; state why any neighbor is deliberately excluded.
+
 Skip for doc-only changes.
 
 ---
@@ -441,6 +443,7 @@ You are looking for work that fell outside the steps above but matters. Examples
 - "I see a related function in another file that probably needs the same fix"
 - "The deploy config may need updating but I didn't check"
 - "There are stale comments in a neighboring file that now describe old behavior"
+- "The system has parallel instances meant to stay symmetric (tenants, regions, environments) — did this change update only one?" Per-instance config rows (permissions, registry entries) are the easiest to change for just one. A "try it on one instance first" needs a stated condition for rolling out to the rest, not an open-ended state.
 
 Don't say "I think it's fine." Run commands, grep for related code, show evidence — or say what you DIDN'T check.
 
