@@ -36,6 +36,10 @@ Audit against BOTH the universal checklist below AND any pipeline-specific rules
 
 10. **No production state experiments**: Code should not reset production database rows, touch production credentials, or trigger production side-effects for testing purposes.
 
+## Checklist — Credential egress
+
+11. **Credentials go only where they are expected**: Items 1 and 4 cover where secrets are stored and who may call in; this item covers where they are sent. A request that carries one of your credentials — an API-key header, an internal service key, a bearer token, a third-party provider key — must go only to the service that expects that credential; for your own keys, that means your own hosts. Check every place in the change that attaches one: shared HTTP clients, request interceptors or middleware, provider adapters, scripts that build headers from environment variables. Flag a client or interceptor that adds a credential to every request without checking the destination host, and any request to a third party that carries your own service's key. Redirects count too: most HTTP clients drop `Authorization` on a cross-host redirect but keep custom headers. Client apps that live in another repository are outside this audit — say so when a change relies on a client sending or withholding a credential.
+
 ## Report Format
 
 One line per finding, ordered by severity:

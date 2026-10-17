@@ -171,6 +171,7 @@ If no dedicated auditor agent exists, run the inline checklist below:
 - [ ] No `.env`, `.pem`, `.key`, credential files staged for commit
 - [ ] No secrets in log/print/console statements
 - [ ] Scan `git diff --cached` for high-entropy strings or patterns (`sk-`, `AKIA`, `ghp_`, `-----BEGIN`, `password=`)
+- [ ] Requests carrying your credentials go only to the service that expects them (no client or interceptor that adds a key to every request regardless of host; no third-party call carrying your own key; custom headers survive cross-host redirects)
 
 ### Injection & input handling
 - [ ] No raw string interpolation in SQL (use parameterized queries)
